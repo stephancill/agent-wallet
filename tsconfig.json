@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["bun", "@cloudflare/workers-types", "vite/client"],
+    "strict": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["scripts/**/*.ts", "cli/**/*.ts", "service/**/*.ts", "shared/**/*.ts", "web/**/*.tsx", "test/**/*.ts", "vite.config.ts"]
+}

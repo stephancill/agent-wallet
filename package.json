@@ -1,0 +1,44 @@
+{
+  "name": "agent-wallet",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-wallet": "./cli/index.ts"
+  },
+  "scripts": {
+    "spike": "bun run scripts/spike.ts",
+    "account:fork": "bun run scripts/account-fork.ts",
+    "generate:delegate": "bun run scripts/generate-delegate.ts",
+    "dev": "vite",
+    "dev:api": "wrangler dev",
+    "db:local": "wrangler d1 migrations apply agent-wallet --local",
+    "test": "bun test test/onboarding.test.ts",
+    "test:integration": "bun run test/onboarding.integration.ts && bun run test/cli.integration.ts",
+    "build": "bun run typecheck && vite build",
+    "lint": "oxlint scripts/*.ts cli/*.ts service/*.ts shared/*.ts web/*.tsx test/*.ts vite.config.ts",
+    "format": "oxfmt --write scripts/*.ts cli/*.ts service/*.ts shared/*.ts web/*.tsx test/*.ts vite.config.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@base-org/account": "^2.5.11",
+    "@openzeppelin/contracts": "5.6.1",
+    "@tanstack/react-query": "^5.103.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "viem": "^2.37.0",
+    "wagmi": "^3.7.7",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260924.1",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxfmt": "^0.32.0",
+    "oxlint": "^1.20.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.1",
+    "wrangler": "^4.135.0"
+  }
+}

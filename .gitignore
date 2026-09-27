@@ -1,0 +1,8 @@
+/node_modules/
+/out/
+/cache/
+/.env.local
+/.anvil/
+/dist/
+/.wrangler/
+.DS_Store

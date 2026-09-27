@@ -1,0 +1,4 @@
+body { font-family: system-ui, sans-serif; }
+main { max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+code { overflow-wrap: anywhere; }
+button, select { margin: .25rem; }
