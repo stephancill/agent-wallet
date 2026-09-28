@@ -96,64 +96,57 @@ function ChainSwitcher({
   onSelectChain: ({ chainId }: { chainId: number }) => void;
 }) {
   const current = popularChains.find((chain) => chain.id === selectedChain);
-  const [editing, setEditing] = useState(false);
   const [choice, setChoice] = useState(current ? String(current.id) : "custom");
   const [input, setInput] = useState(String(selectedChain));
-  const parsed = chainInputSchema.safeParse(choice === "custom" ? input : choice);
+  const customChain = chainInputSchema.safeParse(input);
   return (
-    <>
-      <p>
-        Chain: {current ? `${current.name} (${selectedChain})` : selectedChain}{" "}
-        <button
-          type="button"
-          aria-expanded={editing}
-          aria-controls={editing ? "chain-switcher" : undefined}
-          onClick={() => {
-            setChoice(current ? String(current.id) : "custom");
-            setInput(String(selectedChain));
-            setEditing(!editing);
+    <form
+      className="chain-switcher"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (choice === "custom" && customChain.success)
+          onSelectChain({ chainId: customChain.data });
+      }}
+    >
+      <label>
+        Chain{" "}
+        <select
+          value={choice}
+          onChange={(event) => {
+            const value = event.target.value;
+            setChoice(value);
+            if (value === "custom") {
+              setInput(current ? "" : String(selectedChain));
+              return;
+            }
+            const parsed = chainInputSchema.safeParse(value);
+            if (parsed.success) onSelectChain({ chainId: parsed.data });
           }}
         >
-          {editing ? "Cancel" : "Switch"}
-        </button>
-      </p>
-      {editing && (
-        <form
-          id="chain-switcher"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!parsed.success) return;
-            onSelectChain({ chainId: parsed.data });
-            setEditing(false);
-          }}
-        >
+          {popularChains.map((chain) => (
+            <option key={chain.id} value={chain.id}>
+              {chain.name} ({chain.id})
+            </option>
+          ))}
+          <option value="custom">Custom chain ID</option>
+        </select>
+      </label>
+      {choice === "custom" && (
+        <>
           <label>
-            Select chain{" "}
-            <select autoFocus value={choice} onChange={(event) => setChoice(event.target.value)}>
-              {popularChains.map((chain) => (
-                <option key={chain.id} value={chain.id}>
-                  {chain.name}
-                </option>
-              ))}
-              <option value="custom">Custom chain ID</option>
-            </select>
+            Chain ID{" "}
+            <input
+              inputMode="numeric"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+            />
           </label>
-          {choice === "custom" && (
-            <label>
-              Chain ID{" "}
-              <input
-                inputMode="numeric"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-              />
-            </label>
-          )}
-          <button type="submit" disabled={!parsed.success}>
+          <button type="submit" disabled={!customChain.success}>
             Use chain
           </button>
-        </form>
+        </>
       )}
-    </>
+    </form>
   );
 }
 

@@ -2,6 +2,7 @@ body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0
 code,pre{background:#f4f4f4;padding:.15rem .35rem;border-radius:4px}
 pre{padding:1rem;overflow:auto}
 form{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.chain-switcher{margin:1rem 0}
 input,button{font:inherit}
 button{padding:.25rem .75rem}
 canvas{display:block;margin-top:.5rem}
