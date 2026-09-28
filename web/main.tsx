@@ -87,6 +87,7 @@ const chainInputSchema = z
   .regex(/^[1-9][0-9]*$/)
   .transform(Number)
   .pipe(chainIdSchema);
+const recoveryIdSchema = z.string().regex(/^rs_[a-f0-9]{32}$/);
 
 function ChainSwitcher({
   selectedChain,
@@ -363,6 +364,7 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [quoteId, setQuoteId] = useState("");
+  const [resumeInput, setResumeInput] = useState("");
   const [fundingHash, setFundingHash] = useState("");
   const [topupAmount, setTopupAmount] = useState("");
   const [topupHash, setTopupHash] = useState("");
@@ -415,7 +417,9 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
         },
       });
       setQuoteId(value.id);
+      setResumeInput(value.id);
       setFundingHash("");
+      setTopupHash("");
       setRescueHash("");
     },
   });
@@ -538,6 +542,10 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
               onChange={(event) => {
                 setAgent(event.target.value);
                 setQuoteId("");
+                setResumeInput("");
+                setFundingHash("");
+                setTopupHash("");
+                setRescueHash("");
               }}
             >
               <option value="">Select agent</option>
@@ -584,29 +592,49 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
               </p>
               {state.state === "pre-use" && !quoteId && (
                 <button disabled={createQuote.isPending} onClick={() => createQuote.mutate()}>
-                  Get gas quote
+                  Start recovery
                 </button>
               )}
               {state.state === "active" && !quoteId && (
                 <button disabled={execute.isPending} onClick={() => execute.mutate()}>
-                  Send parent rescue transaction
+                  Recover assets
                 </button>
               )}
             </>
           )}
-          <p>
-            <label>
-              Resume rescue ID{" "}
-              <input
-                value={quoteId}
-                onChange={(event) => setQuoteId(event.target.value)}
-                placeholder="rs_…"
-              />
-            </label>
-          </p>
+          <details>
+            <summary>Resume a pre-use recovery</summary>
+            <p>Enter the recovery ID shown after starting an earlier recovery.</p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const parsed = recoveryIdSchema.safeParse(resumeInput);
+                if (!parsed.success) return;
+                setQuoteId(parsed.data);
+                setFundingHash("");
+                setTopupHash("");
+                setRescueHash("");
+              }}
+            >
+              <label>
+                Recovery ID{" "}
+                <input
+                  value={resumeInput}
+                  onChange={(event) => setResumeInput(event.target.value)}
+                  placeholder="rs_…"
+                />
+              </label>
+              <button type="submit" disabled={!recoveryIdSchema.safeParse(resumeInput).success}>
+                Load recovery
+              </button>
+            </form>
+          </details>
           {quote.error && <p role="alert">{quote.error.message}</p>}
           {quote.data && (
             <>
+              <p>
+                Recovery ID: <code>{quote.data.id}</code>
+              </p>
               <p>
                 Rescue: {quote.data.state}. Recipient: <code>{quote.data.recipient}</code>. Amount:{" "}
                 {quote.data.amountWei} wei.
@@ -677,7 +705,7 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
                 )}
               {(quote.data.state === "active" || quote.data.state === "active_partial") && (
                 <button disabled={execute.isPending} onClick={() => execute.mutate()}>
-                  Send parent rescue transaction
+                  Recover assets
                 </button>
               )}
               {quote.data.deployTxHash && (
