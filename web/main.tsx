@@ -21,6 +21,7 @@ import {
 } from "wagmi";
 import { baseAccount, injected } from "wagmi/connectors";
 import { useMemo, useState } from "react";
+import { z } from "zod";
 import {
   encodeFunctionData,
   isAddressEqual,
@@ -76,7 +77,92 @@ async function api<T>({ path, body }: { path: string; body?: unknown }): Promise
   return value;
 }
 
-function Approval({ selectedChain }: { selectedChain: number }) {
+const popularChains = [
+  { id: 1, name: "Ethereum" },
+  { id: 8453, name: "Base" },
+  { id: 10, name: "Optimism" },
+] as const;
+const chainInputSchema = z
+  .string()
+  .regex(/^[1-9][0-9]*$/)
+  .transform(Number)
+  .pipe(chainIdSchema);
+
+function ChainSwitcher({
+  selectedChain,
+  onSelectChain,
+}: {
+  selectedChain: number;
+  onSelectChain: ({ chainId }: { chainId: number }) => void;
+}) {
+  const current = popularChains.find((chain) => chain.id === selectedChain);
+  const [editing, setEditing] = useState(false);
+  const [choice, setChoice] = useState(current ? String(current.id) : "custom");
+  const [input, setInput] = useState(String(selectedChain));
+  const parsed = chainInputSchema.safeParse(choice === "custom" ? input : choice);
+  return (
+    <>
+      <p>
+        Chain: {current ? `${current.name} (${selectedChain})` : selectedChain}{" "}
+        <button
+          type="button"
+          aria-expanded={editing}
+          aria-controls={editing ? "chain-switcher" : undefined}
+          onClick={() => {
+            setChoice(current ? String(current.id) : "custom");
+            setInput(String(selectedChain));
+            setEditing(!editing);
+          }}
+        >
+          {editing ? "Cancel" : "Switch"}
+        </button>
+      </p>
+      {editing && (
+        <form
+          id="chain-switcher"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!parsed.success) return;
+            onSelectChain({ chainId: parsed.data });
+            setEditing(false);
+          }}
+        >
+          <label>
+            Select chain{" "}
+            <select autoFocus value={choice} onChange={(event) => setChoice(event.target.value)}>
+              {popularChains.map((chain) => (
+                <option key={chain.id} value={chain.id}>
+                  {chain.name}
+                </option>
+              ))}
+              <option value="custom">Custom chain ID</option>
+            </select>
+          </label>
+          {choice === "custom" && (
+            <label>
+              Chain ID{" "}
+              <input
+                inputMode="numeric"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+              />
+            </label>
+          )}
+          <button type="submit" disabled={!parsed.success}>
+            Use chain
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+type ChainSelection = {
+  selectedChain: number;
+  onSelectChain: ({ chainId }: { chainId: number }) => void;
+};
+
+function Approval({ selectedChain, onSelectChain }: ChainSelection) {
   const [, , id] = location.pathname.split("/");
   const token = new URLSearchParams(location.search).get("token") ?? "";
   const query = useQuery({
@@ -122,6 +208,7 @@ function Approval({ selectedChain }: { selectedChain: number }) {
     return (
       <main>
         <h1>agent wallet</h1>
+        <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
         <p>Open the complete approval URL from the agent.</p>
       </main>
     );
@@ -129,6 +216,7 @@ function Approval({ selectedChain }: { selectedChain: number }) {
     return (
       <main>
         <h1>agent wallet</h1>
+        <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
         <p>Loading request…</p>
       </main>
     );
@@ -136,6 +224,7 @@ function Approval({ selectedChain }: { selectedChain: number }) {
     return (
       <main>
         <h1>agent wallet</h1>
+        <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
         <p role="alert">{query.error.message}</p>
       </main>
     );
@@ -143,6 +232,7 @@ function Approval({ selectedChain }: { selectedChain: number }) {
   return (
     <main>
       <h1>Link agent account</h1>
+      <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
       <p>
         Agent address: <code>{attempt.agent}</code>
       </p>
@@ -266,7 +356,7 @@ function rescueData({ recipient, amountWei }: { recipient: Address; amountWei: s
   });
 }
 
-function Recovery({ selectedChain }: { selectedChain: number }) {
+function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
   const { address, chainId, isConnected } = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
@@ -416,7 +506,7 @@ function Recovery({ selectedChain }: { selectedChain: number }) {
         Connect the parent wallet linked to the agent. Pre-use recovery requires a non-refundable
         gas payment to the relayer; any unused gas remains there.
       </p>
-      <p>Chain: {selectedChain}</p>
+      <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
       {!isConnected ? (
         connectors.map((connector) => (
           <button key={connector.uid} onClick={() => connect({ connector })}>
@@ -638,7 +728,6 @@ function App() {
     );
     return chainIdSchema.safeParse(candidate).success ? candidate : 1;
   });
-  const [input, setInput] = useState(String(selectedChain));
   const config = useMemo(
     () =>
       createConfig({
@@ -651,32 +740,17 @@ function App() {
       }),
     [selectedChain],
   );
-  const changeChain = () => {
-    const parsed = chainIdSchema.safeParse(Number(input));
-    if (!parsed.success) return;
-    localStorage.setItem("agent-wallet-chain", String(parsed.data));
-    setSelectedChain(parsed.data);
+  const selectChain = ({ chainId }: { chainId: number }) => {
+    localStorage.setItem("agent-wallet-chain", String(chainId));
+    setSelectedChain(chainId);
   };
   return (
     <QueryClientProvider client={queryClient}>
-      <p>
-        <label>
-          Chain ID{" "}
-          <input
-            inputMode="numeric"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-          />
-        </label>{" "}
-        <button disabled={!chainIdSchema.safeParse(Number(input)).success} onClick={changeChain}>
-          Use chain
-        </button>
-      </p>
       <WagmiProvider key={selectedChain} config={config}>
         {location.pathname === "/recover" || location.pathname === "/" ? (
-          <Recovery selectedChain={selectedChain} />
+          <Recovery selectedChain={selectedChain} onSelectChain={selectChain} />
         ) : (
-          <Approval selectedChain={selectedChain} />
+          <Approval selectedChain={selectedChain} onSelectChain={selectChain} />
         )}
       </WagmiProvider>
       <p>
