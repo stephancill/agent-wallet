@@ -87,7 +87,6 @@ const chainInputSchema = z
   .regex(/^[1-9][0-9]*$/)
   .transform(Number)
   .pipe(chainIdSchema);
-const recoveryIdSchema = z.string().regex(/^rs_[a-f0-9]{32}$/);
 
 function ChainSwitcher({
   selectedChain,
@@ -364,7 +363,6 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [quoteId, setQuoteId] = useState("");
-  const [resumeInput, setResumeInput] = useState("");
   const [fundingHash, setFundingHash] = useState("");
   const [topupAmount, setTopupAmount] = useState("");
   const [topupHash, setTopupHash] = useState("");
@@ -417,7 +415,6 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
         },
       });
       setQuoteId(value.id);
-      setResumeInput(value.id);
       setFundingHash("");
       setTopupHash("");
       setRescueHash("");
@@ -542,7 +539,6 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
               onChange={(event) => {
                 setAgent(event.target.value);
                 setQuoteId("");
-                setResumeInput("");
                 setFundingHash("");
                 setTopupHash("");
                 setRescueHash("");
@@ -602,33 +598,6 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
               )}
             </>
           )}
-          <details>
-            <summary>Resume a pre-use recovery</summary>
-            <p>Enter the recovery ID shown after starting an earlier recovery.</p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                const parsed = recoveryIdSchema.safeParse(resumeInput);
-                if (!parsed.success) return;
-                setQuoteId(parsed.data);
-                setFundingHash("");
-                setTopupHash("");
-                setRescueHash("");
-              }}
-            >
-              <label>
-                Recovery ID{" "}
-                <input
-                  value={resumeInput}
-                  onChange={(event) => setResumeInput(event.target.value)}
-                  placeholder="rs_…"
-                />
-              </label>
-              <button type="submit" disabled={!recoveryIdSchema.safeParse(resumeInput).success}>
-                Load recovery
-              </button>
-            </form>
-          </details>
           {quote.error && <p role="alert">{quote.error.message}</p>}
           {quote.data && (
             <>
