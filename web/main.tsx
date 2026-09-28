@@ -224,7 +224,8 @@ function Approval({ selectedChain, onSelectChain }: ChainSelection) {
   const attempt = query.data;
   return (
     <main>
-      <h1>Link agent account</h1>
+      <h1>agent wallet</h1>
+      <h2>Link agent account</h2>
       <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
       <p>
         Agent address: <code>{attempt.agent}</code>
@@ -494,10 +495,10 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
     .find(Boolean);
   return (
     <main>
-      <h1>Recover agent assets</h1>
+      <h1>agent wallet</h1>
       <p>
-        Connect the parent wallet linked to the agent. Pre-use recovery requires a non-refundable
-        gas payment to the relayer; any unused gas remains there.
+        Connect your wallet to manage your linked agent wallets: view their chain status and recover
+        assets when needed.
       </p>
       <ChainSwitcher selectedChain={selectedChain} onSelectChain={onSelectChain} />
       {!isConnected ? (
@@ -526,6 +527,10 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
       )}
       {signedIn && (
         <>
+          <h2>Your agent wallets</h2>
+          {accounts.data?.accounts.length === 0 && (
+            <p>No agent wallets linked to this wallet yet.</p>
+          )}
           <label>
             Agent{" "}
             <select
@@ -550,6 +555,11 @@ function Recovery({ selectedChain, onSelectChain }: ChainSelection) {
               {state.reason ? ` — ${state.reason}` : ""}
             </p>
           )}
+          <h2>Asset recovery</h2>
+          <p>
+            Send native assets from a linked agent to a recipient. Before activation, this requires
+            a non-refundable gas payment to the relayer; any unused funds remain there.
+          </p>
           {agent && (state?.state === "pre-use" || state?.state === "active") && (
             <>
               <p>
