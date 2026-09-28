@@ -1,0 +1,19 @@
+{
+  "name": "@stupidtech/agent-wallet",
+  "version": "0.1.0",
+  "description": "Local-keyed EVM agent account CLI for Agent Wallet",
+  "type": "module",
+  "bin": {
+    "agent-wallet": "dist/agent-wallet.js"
+  },
+  "files": [
+    "dist/agent-wallet.js"
+  ],
+  "scripts": {
+    "build": "bun build --target bun --outfile dist/agent-wallet.js ../../cli/index.ts",
+    "prepack": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

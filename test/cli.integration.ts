@@ -39,7 +39,7 @@ try {
   const id = url.pathname.split("/")[2];
   const token = url.searchParams.get("token");
   const previewResponse = await fetch(
-    `${origin}/api/attempts/${id}/preview?token=${token}&parent=${parent.address}`,
+    `${origin}/api/attempts/${id}/preview?token=${token}&parent=${parent.address}&chainId=1`,
   );
   assert.equal(previewResponse.status, 200);
   const preview = (await previewResponse.json()) as {

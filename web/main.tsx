@@ -13,24 +13,25 @@ import {
   useConnect,
   useDisconnect,
   useSignTypedData,
+  useSignMessage,
+  useSendTransaction,
+  usePublicClient,
   useSwitchChain,
   WagmiProvider,
 } from "wagmi";
 import { baseAccount, injected } from "wagmi/connectors";
-import { base, mainnet } from "wagmi/chains";
-import { useState } from "react";
-import { isAddressEqual, type Address, type Hex } from "viem";
-import { consentTypedData, rpcUrl } from "../shared/protocol";
+import { useMemo, useState } from "react";
+import {
+  encodeFunctionData,
+  isAddressEqual,
+  parseAbi,
+  parseEther,
+  type Address,
+  type Hex,
+} from "viem";
+import { chainFor, chainIdSchema, consentTypedData, hexSchema, rpcUrl } from "../shared/protocol";
 import "./style.css";
 
-const config = createConfig({
-  chains: [mainnet, base],
-  connectors: [
-    injected(),
-    baseAccount({ appName: "Agent Wallet", preference: { telemetry: false } }),
-  ],
-  transports: { [mainnet.id]: http(rpcUrl(mainnet.id)), [base.id]: http(rpcUrl(base.id)) },
-});
 const queryClient = new QueryClient();
 
 type ChainState = { chainId: number; state: "pre-use" | "active" | "unavailable"; reason?: string };
@@ -75,7 +76,7 @@ async function api<T>({ path, body }: { path: string; body?: unknown }): Promise
   return value;
 }
 
-function Approval() {
+function Approval({ selectedChain }: { selectedChain: number }) {
   const [, , id] = location.pathname.split("/");
   const token = new URLSearchParams(location.search).get("token") ?? "";
   const query = useQuery({
@@ -90,12 +91,11 @@ function Approval() {
   const { switchChainAsync } = useSwitchChain();
   const { signTypedDataAsync } = useSignTypedData();
   const cache = useQueryClient();
-  const [selectedChain, setSelectedChain] = useState<number>(1);
   const preview = useQuery({
-    queryKey: ["preview", id, token, address],
+    queryKey: ["preview", id, token, address, selectedChain],
     queryFn: () =>
       api<Preview>({
-        path: `/api/attempts/${id}/preview?token=${encodeURIComponent(token)}&parent=${address}`,
+        path: `/api/attempts/${id}/preview?token=${encodeURIComponent(token)}&parent=${address}&chainId=${selectedChain}`,
       }),
     enabled:
       !!query.data &&
@@ -106,7 +106,7 @@ function Approval() {
   const submit = useMutation({
     mutationFn: async () => {
       if (!address || !preview.data) throw new Error("Connect a parent wallet first");
-      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain as 1 | 8453 });
+      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain });
       const signature = await signTypedDataAsync({
         account: address,
         ...consentTypedData({ ...preview.data.consent, chainId: selectedChain }),
@@ -121,21 +121,21 @@ function Approval() {
   if (!id || !token)
     return (
       <main>
-        <h1>Agent Wallet</h1>
+        <h1>agent wallet</h1>
         <p>Open the complete approval URL from the agent.</p>
       </main>
     );
   if (query.isPending)
     return (
       <main>
-        <h1>Agent Wallet</h1>
+        <h1>agent wallet</h1>
         <p>Loading request…</p>
       </main>
     );
   if (query.error)
     return (
       <main>
-        <h1>Agent Wallet</h1>
+        <h1>agent wallet</h1>
         <p role="alert">{query.error.message}</p>
       </main>
     );
@@ -187,24 +187,10 @@ function Approval() {
               <p>
                 Expected runtime hash: <code>{preview.data.runtimeHash}</code>
               </p>
-              <label>
-                Consent chain{" "}
-                <select
-                  value={selectedChain}
-                  onChange={(event) => setSelectedChain(Number(event.target.value))}
-                >
-                  {preview.data.chains.map((chain) => (
-                    <option
-                      key={chain.chainId}
-                      value={chain.chainId}
-                      disabled={chain.state === "unavailable"}
-                    >
-                      {chain.chainId === 1 ? "Ethereum" : "Base"} — {chain.state}
-                      {chain.reason ? `: ${chain.reason}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <p>
+                Consent chain {selectedChain}: {preview.data.chains[0]?.state}
+                {preview.data.chains[0]?.reason ? ` — ${preview.data.chains[0].reason}` : ""}
+              </p>
               <p>
                 This approval names this agent, your wallet, the delegate, this request, and its
                 expiry. The agent must separately store a verified rescue authorization before
@@ -251,10 +237,457 @@ function Approval() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <QueryClientProvider client={queryClient}>
-    <WagmiProvider config={config}>
-      <Approval />
-    </WagmiProvider>
-  </QueryClientProvider>,
-);
+type Rescue = {
+  id: string;
+  agent: Address;
+  chainId: number;
+  recipient: Address;
+  amountWei: string;
+  fundingWei: string;
+  relayer: Address;
+  state: "quoted" | "activating" | "active" | "active_partial" | "failed" | "completed";
+  expiresAt: number;
+  fundingTxHash: Hex | null;
+  deployTxHash: Hex | null;
+  activationTxHash: Hex | null;
+  rescueTxHash: Hex | null;
+  errorCode: string | null;
+  error: string | null;
+};
+
+const rescueAbi = parseAbi([
+  "function executeBatch((address to, uint256 value, bytes data)[] calls)",
+]);
+function rescueData({ recipient, amountWei }: { recipient: Address; amountWei: string }) {
+  return encodeFunctionData({
+    abi: rescueAbi,
+    functionName: "executeBatch",
+    args: [[{ to: recipient, value: BigInt(amountWei), data: "0x" }]],
+  });
+}
+
+function Recovery({ selectedChain }: { selectedChain: number }) {
+  const { address, chainId, isConnected } = useAccount();
+  const { connectors, connect } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
+  const { signMessageAsync } = useSignMessage();
+  const { sendTransactionAsync } = useSendTransaction();
+  const client = usePublicClient({ chainId: selectedChain });
+  const [signedIn, setSignedIn] = useState(false);
+  const [agent, setAgent] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("");
+  const [quoteId, setQuoteId] = useState("");
+  const [fundingHash, setFundingHash] = useState("");
+  const [topupAmount, setTopupAmount] = useState("");
+  const [topupHash, setTopupHash] = useState("");
+  const [rescueHash, setRescueHash] = useState("");
+  const session = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error("Connect your parent wallet");
+      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain });
+      const { message } = await api<{ message: string }>({
+        path: "/api/session/challenge",
+        body: { address, chainId: selectedChain },
+      });
+      await api({
+        path: "/api/session",
+        body: { message, signature: await signMessageAsync({ message }) },
+      });
+      setSignedIn(true);
+    },
+  });
+  const accounts = useQuery({
+    queryKey: ["recovery-accounts", address, selectedChain, signedIn],
+    queryFn: () =>
+      api<{ accounts: { agent: Address; delegate: Address }[] }>({ path: "/api/parents/accounts" }),
+    enabled: signedIn,
+  });
+  const status = useQuery({
+    queryKey: ["recovery-account", agent, selectedChain],
+    queryFn: () =>
+      api<{ chains: ChainState[] }>({ path: `/api/accounts/${agent}?chainId=${selectedChain}` }),
+    enabled: signedIn && !!agent,
+    refetchInterval: 4000,
+  });
+  const quote = useQuery({
+    queryKey: ["rescue", quoteId],
+    queryFn: () => api<Rescue>({ path: `/api/rescues/${quoteId}` }),
+    enabled: signedIn && !!quoteId,
+    refetchInterval: 4000,
+  });
+  const cache = useQueryClient();
+  const refresh = () => cache.invalidateQueries({ queryKey: ["rescue", quoteId] });
+  const createQuote = useMutation({
+    mutationFn: async () => {
+      const value = await api<Rescue>({
+        path: "/api/rescues",
+        body: {
+          agent,
+          chainId: selectedChain,
+          recipient,
+          amountWei: parseEther(amount).toString(),
+        },
+      });
+      setQuoteId(value.id);
+      setFundingHash("");
+      setRescueHash("");
+    },
+  });
+  const fund = useMutation({
+    mutationFn: async () => {
+      if (!quote.data || !client || !address) throw new Error("Quote or wallet unavailable");
+      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain });
+      const hash = await sendTransactionAsync({
+        account: address,
+        chainId: selectedChain,
+        to: quote.data.relayer,
+        value: BigInt(quote.data.fundingWei),
+        data: "0x",
+      });
+      setFundingHash(hash);
+      await client.waitForTransactionReceipt({ hash, confirmations: 2 });
+    },
+  });
+  const topup = useMutation({
+    mutationFn: async () => {
+      if (!quote.data || !client || !address) throw new Error("Quote or wallet unavailable");
+      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain });
+      const value = parseEther(topupAmount);
+      if (value <= 0n) throw new Error("Enter a positive top-up amount");
+      const hash = await sendTransactionAsync({
+        account: address,
+        chainId: selectedChain,
+        to: quote.data.relayer,
+        value,
+        data: "0x",
+      });
+      setTopupHash(hash);
+      const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 2 });
+      if (receipt.status !== "success") throw new Error("Relayer top-up reverted");
+    },
+  });
+  const activate = useMutation({
+    mutationFn: async () => {
+      if (!quote.data) throw new Error("Quote unavailable");
+      await api<Rescue>({
+        path: `/api/rescues/${quoteId}/activate`,
+        body: { fundingTxHash: fundingHash || quote.data.fundingTxHash },
+      });
+      await refresh();
+    },
+  });
+  const execute = useMutation({
+    mutationFn: async () => {
+      if (!client || !address) throw new Error("Wallet unavailable");
+      if (chainId !== selectedChain) await switchChainAsync({ chainId: selectedChain });
+      const target = quote.data?.agent ?? (agent as Address);
+      const dest = quote.data?.recipient ?? (recipient as Address);
+      const value = quote.data?.amountWei ?? parseEther(amount).toString();
+      const hash =
+        (rescueHash ? hexSchema.parse(rescueHash) : null) ||
+        (await sendTransactionAsync({
+          account: address,
+          chainId: selectedChain,
+          to: target,
+          data: rescueData({ recipient: dest, amountWei: value }),
+        }));
+      setRescueHash(hash);
+      const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 2 });
+      if (receipt.status !== "success") throw new Error("Rescue transaction reverted");
+      if (quote.data) {
+        await api<Rescue>({
+          path: `/api/rescues/${quoteId}/complete`,
+          body: { rescueTxHash: hash },
+        });
+        await refresh();
+      }
+    },
+  });
+  const state = status.data?.chains.find((item) => item.chainId === selectedChain);
+  const error = [session, createQuote, fund, topup, activate, execute]
+    .map((item) => item.error)
+    .find(Boolean);
+  return (
+    <main>
+      <h1>Recover agent assets</h1>
+      <p>
+        Connect the parent wallet linked to the agent. Pre-use recovery requires a non-refundable
+        gas payment to the relayer; any unused gas remains there.
+      </p>
+      <p>Chain: {selectedChain}</p>
+      {!isConnected ? (
+        connectors.map((connector) => (
+          <button key={connector.uid} onClick={() => connect({ connector })}>
+            Connect {connector.name}
+          </button>
+        ))
+      ) : (
+        <p>
+          Connected: <code>{address}</code>{" "}
+          <button
+            onClick={() => {
+              disconnect();
+              setSignedIn(false);
+            }}
+          >
+            Disconnect
+          </button>
+        </p>
+      )}
+      {isConnected && !signedIn && (
+        <button disabled={session.isPending} onClick={() => session.mutate()}>
+          Sign in with parent wallet
+        </button>
+      )}
+      {signedIn && (
+        <>
+          <label>
+            Agent{" "}
+            <select
+              value={agent}
+              onChange={(event) => {
+                setAgent(event.target.value);
+                setQuoteId("");
+              }}
+            >
+              <option value="">Select agent</option>
+              {accounts.data?.accounts.map((item) => (
+                <option key={item.agent} value={item.agent}>
+                  {item.agent}
+                </option>
+              ))}
+            </select>
+          </label>
+          {accounts.error && <p role="alert">{accounts.error.message}</p>}
+          {state && (
+            <p>
+              Chain state: {state.state}
+              {state.reason ? ` — ${state.reason}` : ""}
+            </p>
+          )}
+          {agent && (state?.state === "pre-use" || state?.state === "active") && (
+            <>
+              <p>
+                <label>
+                  Recipient{" "}
+                  <input
+                    value={recipient}
+                    onChange={(event) => setRecipient(event.target.value)}
+                    placeholder="0x…"
+                  />
+                </label>
+              </p>
+              <p>
+                <label>
+                  Native amount (18 decimals){" "}
+                  <input
+                    value={amount}
+                    onChange={(event) => setAmount(event.target.value)}
+                    placeholder="0.01"
+                  />
+                </label>
+              </p>
+              {state.state === "pre-use" && !quoteId && (
+                <button disabled={createQuote.isPending} onClick={() => createQuote.mutate()}>
+                  Get gas quote
+                </button>
+              )}
+              {state.state === "active" && !quoteId && (
+                <button disabled={execute.isPending} onClick={() => execute.mutate()}>
+                  Send parent rescue transaction
+                </button>
+              )}
+            </>
+          )}
+          <p>
+            <label>
+              Resume rescue ID{" "}
+              <input
+                value={quoteId}
+                onChange={(event) => setQuoteId(event.target.value)}
+                placeholder="rs_…"
+              />
+            </label>
+          </p>
+          {quote.error && <p role="alert">{quote.error.message}</p>}
+          {quote.data && (
+            <>
+              <p>
+                Rescue: {quote.data.state}. Recipient: <code>{quote.data.recipient}</code>. Amount:{" "}
+                {quote.data.amountWei} wei.
+              </p>
+              <p>
+                Relayer: <code>{quote.data.relayer}</code>. Non-refundable gas payment:{" "}
+                {quote.data.fundingWei} wei. Quote expires:{" "}
+                {new Date(quote.data.expiresAt * 1000).toLocaleString()}.
+              </p>
+              {quote.data.errorCode && (
+                <p role="alert">
+                  {quote.data.errorCode}: {quote.data.error}
+                </p>
+              )}
+              {quote.data.state === "quoted" && !fundingHash && (
+                <button disabled={fund.isPending} onClick={() => fund.mutate()}>
+                  Pay relayer gas
+                </button>
+              )}
+              {quote.data.state === "quoted" && (
+                <p>
+                  <label>
+                    Funding transaction hash{" "}
+                    <input
+                      value={fundingHash}
+                      onChange={(event) => setFundingHash(event.target.value)}
+                      placeholder="0x…"
+                    />
+                  </label>
+                </p>
+              )}
+              {(quote.data.state === "quoted" || quote.data.state === "activating") && (
+                <button
+                  disabled={activate.isPending || !(fundingHash || quote.data.fundingTxHash)}
+                  onClick={() => activate.mutate()}
+                >
+                  Continue activation
+                </button>
+              )}
+              {quote.data.state === "activating" &&
+                (quote.data.errorCode === "RELAYER_UNDERFUNDED" ||
+                  quote.data.errorCode === "RELAYER_FEE_CAP_UNFUNDED") && (
+                  <div>
+                    <p>
+                      The relayer needs more native gas. Additional funds are non-refundable. After
+                      the top-up confirms, continue the same activation.
+                    </p>
+                    <label>
+                      Top-up native amount{" "}
+                      <input
+                        value={topupAmount}
+                        onChange={(event) => setTopupAmount(event.target.value)}
+                        placeholder="0.000001"
+                      />
+                    </label>{" "}
+                    <button
+                      disabled={topup.isPending || !topupAmount}
+                      onClick={() => topup.mutate()}
+                    >
+                      Pay additional gas
+                    </button>
+                    {topupHash && (
+                      <p>
+                        Top-up: <code>{topupHash}</code>
+                      </p>
+                    )}
+                  </div>
+                )}
+              {(quote.data.state === "active" || quote.data.state === "active_partial") && (
+                <button disabled={execute.isPending} onClick={() => execute.mutate()}>
+                  Send parent rescue transaction
+                </button>
+              )}
+              {quote.data.deployTxHash && (
+                <p>
+                  Deployment: <code>{quote.data.deployTxHash}</code>
+                </p>
+              )}
+              {quote.data.activationTxHash && (
+                <p>
+                  Activation: <code>{quote.data.activationTxHash}</code>
+                </p>
+              )}
+              {quote.data.rescueTxHash && (
+                <p>
+                  Rescue transaction: <code>{quote.data.rescueTxHash}</code>
+                </p>
+              )}
+            </>
+          )}
+          {quote.data &&
+            (quote.data.state === "active" || quote.data.state === "active_partial") && (
+              <p>
+                <label>
+                  Resume parent rescue transaction{" "}
+                  <input
+                    value={rescueHash}
+                    onChange={(event) => setRescueHash(event.target.value)}
+                    placeholder="0x…"
+                  />
+                </label>
+              </p>
+            )}
+          {rescueHash && (
+            <p>
+              Wallet rescue transaction: <code>{rescueHash}</code>
+            </p>
+          )}
+          {error && <p role="alert">{error.message}</p>}
+        </>
+      )}
+    </main>
+  );
+}
+
+function App() {
+  const [selectedChain, setSelectedChain] = useState(() => {
+    const candidate = Number(
+      new URLSearchParams(location.search).get("chainId") ??
+        localStorage.getItem("agent-wallet-chain") ??
+        "1",
+    );
+    return chainIdSchema.safeParse(candidate).success ? candidate : 1;
+  });
+  const [input, setInput] = useState(String(selectedChain));
+  const config = useMemo(
+    () =>
+      createConfig({
+        chains: [chainFor({ chainId: selectedChain })],
+        connectors: [
+          injected(),
+          baseAccount({ appName: "agent wallet", preference: { telemetry: false } }),
+        ],
+        transports: { [selectedChain]: http(rpcUrl(selectedChain)) },
+      }),
+    [selectedChain],
+  );
+  const changeChain = () => {
+    const parsed = chainIdSchema.safeParse(Number(input));
+    if (!parsed.success) return;
+    localStorage.setItem("agent-wallet-chain", String(parsed.data));
+    setSelectedChain(parsed.data);
+  };
+  return (
+    <QueryClientProvider client={queryClient}>
+      <p>
+        <label>
+          Chain ID{" "}
+          <input
+            inputMode="numeric"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+          />
+        </label>{" "}
+        <button disabled={!chainIdSchema.safeParse(Number(input)).success} onClick={changeChain}>
+          Use chain
+        </button>
+      </p>
+      <WagmiProvider key={selectedChain} config={config}>
+        {location.pathname === "/recover" || location.pathname === "/" ? (
+          <Recovery selectedChain={selectedChain} />
+        ) : (
+          <Approval selectedChain={selectedChain} />
+        )}
+      </WagmiProvider>
+      <p>
+        <a href="https://github.com/stephancill/agent-wallet">github</a>
+        {" - "}
+        <a href="https://x.com/stephancill">twitter</a>
+        {" - "}
+        <a href="https://stupidtech.net">stupidtech.net</a>
+      </p>
+    </QueryClientProvider>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);

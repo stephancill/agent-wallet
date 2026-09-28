@@ -3,6 +3,9 @@
   "name": "agent-wallet",
   "main": "service/worker.ts",
   "compatibility_date": "2026-09-25",
+  "vars": {
+    "RESCUE_MODE": "production"
+  },
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist",
@@ -12,7 +15,13 @@
     {
       "binding": "DB",
       "database_name": "agent-wallet",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "e03cf792-ad88-4407-8552-77b80dffdefc"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "agent-wallet.stupidtech.net",
+      "custom_domain": true
     }
   ]
 }

@@ -4,5 +4,7 @@
 /.env.local
 /.anvil/
 /dist/
+/packages/agent-wallet/dist/
 /.wrangler/
+.dev.vars*
 .DS_Store

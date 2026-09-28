@@ -2,7 +2,7 @@
 
 ## Project
 
-Agent Wallet is a Bun CLI, dedicated browser frontend, and HTTP service for a locally keyed EVM agent account; a public CLI package name and agent skill have not yet been chosen. Agent Wallet owns human-wallet onboarding and durable association/rescue-artifact storage. Transaction preparation/broadcasting and recovery are planned but not implemented. `../txlink` is optional for short-lived ordinary payment approval links, not account state or rescue custody. The repository also contains a standalone, parent-specific EIP-7702 delegate, fork runners, tests, and planning documents. Read `docs/onboarding.md` for the current local flow and its release gates.
+Agent Wallet is a Bun CLI, dedicated browser frontend, and HTTP service for a locally keyed EVM agent account; the CLI is published as `@stupidtech/agent-wallet` and its agent skill is in `skills/agent-wallet/`. Agent Wallet owns human-wallet onboarding and durable association/rescue-artifact storage. Transaction preparation/broadcasting and EOA-funded pre-use native-asset rescue are implemented in the public Worker; fork end-to-end tests and two small-value public Base rescues passed. Chains are selected by chain ID and checked against live CREATE2/delegation prerequisites. `../txlink` is optional for short-lived ordinary payment approval links, not account state or rescue custody. The repository also contains a standalone, parent-specific EIP-7702 delegate, fork runners, tests, and planning documents. Read `docs/onboarding.md`, `docs/transactions.md`, and `docs/recovery.md` for current flows and release gates.
 
 ## Before making changes
 

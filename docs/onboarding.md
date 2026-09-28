@@ -1,6 +1,6 @@
-# Local onboarding implementation
+# Onboarding implementation
 
-The first implementation slice has a Bun CLI (`cli/index.ts`), a separate Vite/React approval page (`web/`), a Cloudflare Worker (`service/worker.ts`), and D1 tables in `migrations/`. It supports login attempts, EIP-712 parent consent, locally signed EIP-7702 rescue authorizations, and read-only per-chain state for Ethereum (1) and Base (8453). The proposed public URL is `https://agent-wallet.stupidtech.net/approve/<attempt-id>?token=...`; no public service or package has been deployed.
+The Bun CLI (`cli/index.ts`), Vite/React approval page (`web/`), Cloudflare Worker (`service/worker.ts`), and D1 tables in `migrations/` support login attempts, EIP-712 parent consent, locally signed EIP-7702 rescue authorizations, and read-only state for a requested EVM chain ID. The public approval URL is `https://agent-wallet.stupidtech.net/approve/<attempt-id>?token=...`. The Worker and D1 are deployed, and `@stupidtech/agent-wallet@0.1.0` is published on npm from `packages/agent-wallet/`. Local and public ephemeral-account onboarding tests pass without broadcasting transactions.
 
 ## Run locally
 
@@ -20,19 +20,19 @@ bun cli/index.ts status
 bun cli/index.ts login
 ```
 
-The CLI defaults to `http://127.0.0.1:8787`, and accepts `AGENT_WALLET_URL` and `AGENT_WALLET_HOME` overrides. It stores its private key in an owner-only directory/file and the pending approval URL in an owner-only file; the key never leaves the host. `login` keeps polling after displaying the complete link. Restarting it reuses the pending key/attempt, or creates a new attempt after expiry. The page supports injected EIP-1193 wallets and Base Account; it asks for EIP-712 consent and does not request `wallet_addSubAccount`.
+The CLI defaults to `https://agent-wallet.stupidtech.net`, and accepts `AGENT_WALLET_URL` and `AGENT_WALLET_HOME` overrides. Set `AGENT_WALLET_URL=http://127.0.0.1:8787` for the local Worker. It stores its private key in an owner-only directory/file and the pending approval URL in an owner-only file; the key never leaves the host. `login` keeps polling after displaying the complete link. Restarting it reuses the pending key/attempt, or creates a new attempt after expiry. The page supports injected EIP-1193 wallets and Base Account; select a chain ID before signing EIP-712 consent. It does not request `wallet_addSubAccount`.
 
-For development, Vite (`bun run dev`) proxies `/api` to Wrangler on port 8787, while the approval URL points to Wrangler's built static assets. Rebuild the static assets after editing the page. The checked-in D1 ID in `wrangler.jsonc` is **local-only**; create a real D1 database, replace the ID, apply migrations remotely, configure the deployment domain, and review production RPC availability before deploying.
+For development, Vite (`bun run dev`) proxies `/api` to Wrangler on port 8787, while the approval URL points to Wrangler's built static assets. Rebuild the static assets after editing the page. `wrangler.jsonc` binds remote D1 and the custom domain; local migrations use separate Wrangler state. Public RPC reads use `https://evm.stupidtech.net/v1/<chainId>`.
 
 ## State and authority
 
 1. `POST /api/challenges` issues a short-lived agent-key challenge for `login` or `finalize`. The CLI signs an origin-bound message; `POST /api/login` verifies it and returns a reproducible, retryable short-lived approval link.
-2. The page reads only the attempt's public fields. Its `/preview` request computes the parent-specific CREATE2 address and expected runtime hash, inspects Ethereum/Base nonce, pointer, delegate and factory code, and shows chain-specific failures.
+2. The page reads only the attempt's public fields. Its `/preview?chainId=<id>` request computes the parent-specific CREATE2 address and expected runtime hash, inspects the selected chain's nonce, pointer, delegate and factory code, and shows failures.
 3. `POST /api/attempts/:id/consent` verifies a request-bound EIP-712 signature from the claimed EOA or ERC-1271 account on the selected chain before saving parent consent. Link-token possession alone cannot complete consent.
 4. The CLI verifies the parent-bound delegate locally, signs the chain-agnostic nonce-0 authorization, signs a fresh finalize challenge, and posts both to `/authorization`. The API recovers the agent EOA signer, rechecks chain state and parent consent, and atomically stores the association and authorization. Signed artifacts are absent from attempt and account GET responses.
-5. `GET /api/accounts/:agent` reports `ready` for a stored verified association and separately computes `pre-use`, `active`, or `unavailable` on each chain. `pre-use` means eligibility subject to live nonce/code checks, not that a lost-key rescue has executed. A plain nonce-0 transaction on an unactivated chain is still prohibited.
+5. `GET /api/accounts/:agent?chainId=<id>` reports `ready` for a stored verified association and separately computes `pre-use`, `active`, or `unavailable` on the selected chain. `pre-use` means eligibility subject to live nonce/code checks, not that a lost-key rescue has executed. A plain nonce-0 transaction on an unactivated chain is still prohibited.
 
-The account table is durable; login attempts expire after 30 minutes. The stored nonce-0 tuple is retained independently of per-chain activation. A parent reassignment flow, agent transaction preparation/broadcasting, funded relayer rescue, and public contract deployment/source verification remain release gates. The ERC-1271 verification path uses viem's onchain typed-data verification; the local end-to-end integration currently exercises EOA parents, not a live ERC-1271 parent.
+The account table is durable; login attempts expire after 30 minutes. The stored nonce-0 tuple is retained independently of per-chain activation. Agent transaction preparation/broadcasting is documented in `transactions.md`; parent-funded recovery is in `recovery.md`. A parent reassignment flow, live public rescue, and public delegate source verification remain release gates. The ERC-1271 onboarding verification path uses viem's onchain typed-data verification; end-to-end onboarding integration currently exercises EOA parents, not a live ERC-1271 parent.
 
 ## Checks
 

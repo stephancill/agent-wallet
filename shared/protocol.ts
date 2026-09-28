@@ -1,6 +1,7 @@
 import {
   concatHex,
   createPublicClient,
+  defineChain,
   encodeAbiParameters,
   getContractAddress,
   http,
@@ -9,7 +10,6 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { base, mainnet } from "viem/chains";
 import { z } from "zod";
 import artifact from "./delegate-artifact.json";
 
@@ -27,15 +27,28 @@ export const signatureSchema = hexSchema.refine(
 );
 export const factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c" as const;
 export const factoryHash = "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989";
-const salt = `0x${"00".repeat(32)}` as Hex;
-export const chains = [mainnet, base] as const;
+export const salt = `0x${"00".repeat(32)}` as Hex;
 export const rpcUrl = (chainId: number) => `https://evm.stupidtech.net/v1/${chainId}`;
+export const chainIdSchema = z.number().int().positive().safe();
+export function chainFor({ chainId }: { chainId: number }) {
+  chainIdSchema.parse(chainId);
+  return defineChain({
+    id: chainId,
+    name: `EVM ${chainId}`,
+    nativeCurrency: { name: "Native asset", symbol: "NATIVE", decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl(chainId)] } },
+  });
+}
 
-export function delegateIdentity({ parent }: { parent: Address }) {
-  const initcode = concatHex([
+export function delegateInitcode({ parent }: { parent: Address }) {
+  return concatHex([
     artifact.creationCode as Hex,
     encodeAbiParameters([{ type: "address" }], [parent]),
   ]);
+}
+
+export function delegateIdentity({ parent }: { parent: Address }) {
+  const initcode = delegateInitcode({ parent });
   const address = getContractAddress({
     opcode: "CREATE2",
     from: factory,
@@ -114,22 +127,31 @@ export function agentMessage({
   return `Agent Wallet ${purpose}\nOrigin: ${origin}\nID: ${id}\nChallenge: ${challenge}`;
 }
 
-export function publicClient({ chainId }: { chainId: number }) {
-  const chain = chains.find((item) => item.id === chainId);
-  if (!chain) throw new Error(`Unsupported chain ${chainId}`);
-  return createPublicClient({ chain, transport: http(rpcUrl(chainId)) });
+export function publicClient({
+  chainId,
+  rpcUrlOverride,
+}: {
+  chainId: number;
+  rpcUrlOverride?: string;
+}) {
+  return createPublicClient({
+    chain: chainFor({ chainId }),
+    transport: http(rpcUrlOverride ?? rpcUrl(chainId)),
+  });
 }
 
 export async function inspectChain({
   agent,
   parent,
   chainId,
+  rpcUrlOverride,
 }: {
   agent: Address;
   parent: Address;
   chainId: number;
+  rpcUrlOverride?: string;
 }) {
-  const client = publicClient({ chainId });
+  const client = publicClient({ chainId, rpcUrlOverride });
   const identity = delegateIdentity({ parent });
   if ((await client.getChainId()) !== chainId) throw new Error("RPC chain mismatch");
   const [factoryCode, delegateCode, agentCode, nonce] = await Promise.all([

@@ -52,7 +52,7 @@ assert.equal(
 );
 await api({ path: `/api/attempts/${created.id}?token=0xdead`, status: 400 });
 const preview = await api({
-  path: `/api/attempts/${created.id}/preview?token=${created.token}&parent=${parent.address}`,
+  path: `/api/attempts/${created.id}/preview?token=${created.token}&parent=${parent.address}&chainId=1`,
 });
 assert.equal(preview.delegate, delegateIdentity({ parent: parent.address }).address);
 assert.ok(preview.chains.some((chain: { state: string }) => chain.state === "pre-use"));
